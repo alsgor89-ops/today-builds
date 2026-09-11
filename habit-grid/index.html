@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Habit Grid</title>
+<style>
+  :root {
+    --bg: #f7f5f2;
+    --panel: #ffffff;
+    --ink: #2b2a28;
+    --sub: #7a7670;
+    --accent: #2f9e6e;
+    --line: #e7e3dd;
+    --danger: #d9534f;
+    --cell-0: #ebe8e2;
+    --cell-1: #c6ecd9;
+    --cell-2: #8fd6ae;
+    --cell-3: #4fb887;
+    --cell-4: #2f9e6e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #17191a;
+      --panel: #212425;
+      --ink: #eef1ef;
+      --sub: #9aa39d;
+      --accent: #4fd699;
+      --line: #33383a;
+      --danger: #ff7a72;
+      --cell-0: #26292a;
+      --cell-1: #16412f;
+      --cell-2: #1c633f;
+      --cell-3: #279a5c;
+      --cell-4: #4fd699;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Pretendard, sans-serif;
+    display: flex;
+    justify-content: center;
+    padding: 40px 16px;
+  }
+  .app { width: 100%; max-width: 620px; }
+  h1 { font-size: 20px; font-weight: 700; margin: 0 0 4px; text-align: center; }
+  .tagline { text-align: center; color: var(--sub); font-size: 13px; margin-bottom: 28px; }
+
+  .add-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 20px;
+  }
+  .add-row input {
+    flex: 1;
+    border: 1px solid var(--line);
+    background: var(--panel);
+    color: var(--ink);
+    border-radius: 10px;
+    padding: 10px 12px;
+    font-size: 14px;
+  }
+  .add-row button {
+    border: none;
+    background: var(--accent);
+    color: white;
+    border-radius: 10px;
+    padding: 0 18px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .habit-card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 18px 20px;
+    margin-bottom: 14px;
+  }
+  .habit-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+  }
+  .habit-name { font-size: 15px; font-weight: 700; }
+  .habit-stats { font-size: 12px; color: var(--sub); }
+  .habit-stats b { color: var(--accent); }
+  .habit-actions { display: flex; align-items: center; gap: 10px; }
+  .del-btn {
+    background: none;
+    border: none;
+    color: var(--sub);
+    cursor: pointer;
+    font-size: 16px;
+    padding: 2px 4px;
+  }
+  .del-btn:hover { color: var(--danger); }
+
+  .grid-scroll {
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+  .grid {
+    display: grid;
+    grid-auto-flow: column;
+    grid-template-rows: repeat(7, 14px);
+    gap: 3px;
+    width: max-content;
+  }
+  .cell {
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    background: var(--cell-0);
+    cursor: pointer;
+    position: relative;
+  }
+  .cell.today { box-shadow: 0 0 0 2px var(--accent); }
+  .cell.future { cursor: default; opacity: 0.35; }
+  .cell[data-level="1"] { background: var(--cell-1); }
+  .cell[data-level="2"] { background: var(--cell-2); }
+  .cell[data-level="3"] { background: var(--cell-3); }
+  .cell[data-level="4"] { background: var(--cell-4); }
+
+  .empty {
+    text-align: center;
+    color: var(--sub);
+    font-size: 13px;
+    padding: 30px 0;
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <h1>Habit Grid</h1>
+  <div class="tagline">매일 체크하고 잔디를 채워보세요</div>
+
+  <div class="add-row">
+    <input id="habitInput" type="text" placeholder="새 습관 (예: 물 2L 마시기)" maxlength="40" />
+    <button id="addHabit">추가</button>
+  </div>
+
+  <div id="habitList"></div>
+  <div class="empty" id="emptyState">아직 습관이 없습니다. 위에서 추가해보세요.</div>
+</div>
+
+<script>
+(function () {
+  const STORAGE_KEY = 'habitgrid.habits.v1';
+  const DAYS = 70; // 10 weeks
+  let habits = [];
+
+  function todayStr(offset = 0) {
+    const d = new Date();
+    d.setDate(d.getDate() + offset);
+    return d.toISOString().slice(0, 10);
+  }
+
+  function load() {
+    try {
+      habits = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+    } catch (e) { habits = []; }
+  }
+  function save() {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(habits)); } catch (e) {}
+  }
+
+  function computeStreaks(habit) {
+    let current = 0;
+    for (let i = 0; i >= -400; i--) {
+      const d = todayStr(i);
+      if (habit.done[d]) current++;
+      else break;
+    }
+    let best = 0, run = 0;
+    const dates = Object.keys(habit.done).filter((d) => habit.done[d]).sort();
+    let prev = null;
+    dates.forEach((d) => {
+      if (prev) {
+        const diff = (new Date(d) - new Date(prev)) / 86400000;
+        run = diff === 1 ? run + 1 : 1;
+      } else {
+        run = 1;
+      }
+      best = Math.max(best, run);
+      prev = d;
+    });
+    return { current, best };
+  }
+
+  function levelFor(done) {
+    return done ? 4 : 0;
+  }
+
+  function render() {
+    const list = document.getElementById('habitList');
+    const empty = document.getElementById('emptyState');
+    list.innerHTML = '';
+    empty.style.display = habits.length ? 'none' : 'block';
+
+    habits.forEach((habit) => {
+      const card = document.createElement('div');
+      card.className = 'habit-card';
+
+      const head = document.createElement('div');
+      head.className = 'habit-head';
+      const { current, best } = computeStreaks(habit);
+      head.innerHTML = `
+        <div>
+          <div class="habit-name">${escapeHtml(habit.name)}</div>
+          <div class="habit-stats">현재 연속 <b>${current}일</b> · 최고 기록 <b>${best}일</b></div>
+        </div>
+      `;
+      const actions = document.createElement('div');
+      actions.className = 'habit-actions';
+      const del = document.createElement('button');
+      del.className = 'del-btn';
+      del.textContent = '×';
+      del.addEventListener('click', () => {
+        habits = habits.filter((h) => h.id !== habit.id);
+        save();
+        render();
+      });
+      actions.appendChild(del);
+      head.appendChild(actions);
+      card.appendChild(head);
+
+      const scroll = document.createElement('div');
+      scroll.className = 'grid-scroll';
+      const grid = document.createElement('div');
+      grid.className = 'grid';
+
+      const startOffset = -(DAYS - 1);
+      const firstDate = new Date();
+      firstDate.setDate(firstDate.getDate() + startOffset);
+      const leadingBlanks = firstDate.getDay();
+
+      for (let i = 0; i < leadingBlanks; i++) {
+        const blank = document.createElement('div');
+        blank.style.visibility = 'hidden';
+        grid.appendChild(blank);
+      }
+
+      for (let i = startOffset; i <= 0; i++) {
+        const dateStr = todayStr(i);
+        const cell = document.createElement('div');
+        cell.className = 'cell' + (i === 0 ? ' today' : '');
+        cell.dataset.level = levelFor(habit.done[dateStr]);
+        cell.title = dateStr + (habit.done[dateStr] ? ' ✓' : '');
+        cell.addEventListener('click', () => {
+          habit.done[dateStr] = !habit.done[dateStr];
+          save();
+          render();
+        });
+        grid.appendChild(cell);
+      }
+
+      scroll.appendChild(grid);
+      card.appendChild(scroll);
+      list.appendChild(card);
+    });
+  }
+
+  function escapeHtml(s) {
+    const div = document.createElement('div');
+    div.textContent = s;
+    return div.innerHTML;
+  }
+
+  function addHabit() {
+    const input = document.getElementById('habitInput');
+    const value = input.value.trim();
+    if (!value) return;
+    habits.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2), name: value, done: {} });
+    input.value = '';
+    save();
+    render();
+  }
+
+  document.getElementById('addHabit').addEventListener('click', addHabit);
+  document.getElementById('habitInput').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') addHabit();
+  });
+
+  load();
+  render();
+})();
+</script>
+</body>
+</html>
