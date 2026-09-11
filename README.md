@@ -42,3 +42,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File serve.ps1 -Port 8765
 ## 기술 스택
 
 프레임워크나 빌드 도구 없이 순수 HTML / CSS / JavaScript로만 작성했습니다. 외부 의존성이 없어 파일만 있으면 어디서든 바로 열립니다.
+
+## 라이선스
+
+[MIT](LICENSE)
