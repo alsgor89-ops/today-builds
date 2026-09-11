@@ -1,0 +1,508 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Focus Flow — Pomodoro & Tasks</title>
+<style>
+  :root {
+    --bg: #f7f5f2;
+    --panel: #ffffff;
+    --ink: #2b2a28;
+    --sub: #7a7670;
+    --accent: #e8603c;
+    --accent-soft: #fbe4dc;
+    --line: #e7e3dd;
+    --green: #4c8c6b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1b1a18;
+      --panel: #242220;
+      --ink: #f1efe9;
+      --sub: #a39d92;
+      --accent: #ff7a52;
+      --accent-soft: #3a2620;
+      --line: #35322d;
+      --green: #7cc9a0;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Pretendard, sans-serif;
+    display: flex;
+    justify-content: center;
+    padding: 40px 16px;
+  }
+  .app {
+    width: 100%;
+    max-width: 460px;
+  }
+  h1 {
+    font-size: 20px;
+    font-weight: 700;
+    margin: 0 0 4px;
+    text-align: center;
+  }
+  .tagline {
+    text-align: center;
+    color: var(--sub);
+    font-size: 13px;
+    margin-bottom: 28px;
+  }
+  .timer-card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    padding: 32px 24px;
+    text-align: center;
+    margin-bottom: 24px;
+  }
+  .mode-switch {
+    display: inline-flex;
+    background: var(--bg);
+    border-radius: 999px;
+    padding: 4px;
+    margin-bottom: 24px;
+    border: 1px solid var(--line);
+  }
+  .mode-switch button {
+    border: none;
+    background: transparent;
+    color: var(--sub);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 6px 14px;
+    border-radius: 999px;
+    cursor: pointer;
+  }
+  .mode-switch button.active {
+    background: var(--accent);
+    color: white;
+  }
+  .time-display {
+    font-size: 64px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -1px;
+    margin-bottom: 8px;
+  }
+  .session-label {
+    color: var(--sub);
+    font-size: 13px;
+    margin-bottom: 24px;
+  }
+  .controls {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+  }
+  .controls button {
+    border: none;
+    border-radius: 12px;
+    padding: 12px 24px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  #startPause {
+    background: var(--accent);
+    color: white;
+  }
+  #reset {
+    background: var(--bg);
+    color: var(--ink);
+    border: 1px solid var(--line) !important;
+  }
+  .progress-dots {
+    display: flex;
+    gap: 6px;
+    justify-content: center;
+    margin-top: 20px;
+  }
+  .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--line);
+  }
+  .dot.done { background: var(--accent); }
+
+  .tasks-card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    padding: 20px;
+  }
+  .tasks-card h2 {
+    font-size: 14px;
+    margin: 0 0 14px;
+    color: var(--sub);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .task-input-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+  .task-input-row input {
+    flex: 1;
+    border: 1px solid var(--line);
+    background: var(--bg);
+    color: var(--ink);
+    border-radius: 10px;
+    padding: 10px 12px;
+    font-size: 14px;
+  }
+  .task-input-row button {
+    border: none;
+    background: var(--ink);
+    color: var(--bg);
+    border-radius: 10px;
+    padding: 0 16px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  ul#taskList {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  ul#taskList li {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 10px;
+    border-radius: 10px;
+    background: var(--bg);
+  }
+  ul#taskList li .check {
+    width: 20px;
+    height: 20px;
+    border-radius: 6px;
+    border: 2px solid var(--line);
+    flex-shrink: 0;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    color: white;
+  }
+  ul#taskList li.done .check {
+    background: var(--green);
+    border-color: var(--green);
+  }
+  ul#taskList li .text {
+    flex: 1;
+    font-size: 14px;
+  }
+  ul#taskList li.done .text {
+    text-decoration: line-through;
+    color: var(--sub);
+  }
+  ul#taskList li .pomo-count {
+    font-size: 11px;
+    color: var(--sub);
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 2px 8px;
+    white-space: nowrap;
+  }
+  ul#taskList li .del {
+    color: var(--sub);
+    cursor: pointer;
+    font-size: 16px;
+    padding: 0 4px;
+    background: none;
+    border: none;
+  }
+  .empty {
+    text-align: center;
+    color: var(--sub);
+    font-size: 13px;
+    padding: 20px 0;
+  }
+  .active-task-banner {
+    font-size: 12px;
+    color: var(--sub);
+    margin-bottom: 4px;
+  }
+  .active-task-banner b { color: var(--accent); }
+</style>
+</head>
+<body>
+<div class="app">
+  <h1>Focus Flow</h1>
+  <div class="tagline">뽀모도로 타이머 + 할 일 목록</div>
+
+  <div class="timer-card">
+    <div class="mode-switch">
+      <button data-mode="focus" class="active">집중 25분</button>
+      <button data-mode="short">짧은 휴식 5분</button>
+      <button data-mode="long">긴 휴식 15분</button>
+    </div>
+    <div class="active-task-banner" id="activeTaskBanner">&nbsp;</div>
+    <div class="time-display" id="timeDisplay">25:00</div>
+    <div class="session-label" id="sessionLabel">집중할 준비 되셨나요?</div>
+    <div class="controls">
+      <button id="startPause">시작</button>
+      <button id="reset">리셋</button>
+    </div>
+    <div class="progress-dots" id="progressDots"></div>
+  </div>
+
+  <div class="tasks-card">
+    <h2>오늘 할 일</h2>
+    <div class="task-input-row">
+      <input id="taskInput" type="text" placeholder="할 일을 입력하세요..." maxlength="80" />
+      <button id="addTask">추가</button>
+    </div>
+    <ul id="taskList"></ul>
+    <div class="empty" id="emptyState">할 일이 없습니다. 위에서 추가해보세요.</div>
+  </div>
+</div>
+
+<script>
+(function () {
+  const DURATIONS = { focus: 25 * 60, short: 5 * 60, long: 15 * 60 };
+  const LABELS = { focus: '집중할 준비 되셨나요?', short: '잠깐 쉬어가요', long: '충분히 쉬세요' };
+
+  let mode = 'focus';
+  let secondsLeft = DURATIONS.focus;
+  let timerId = null;
+  let running = false;
+  let completedPomodoros = 0;
+
+  const timeDisplay = document.getElementById('timeDisplay');
+  const sessionLabel = document.getElementById('sessionLabel');
+  const startPauseBtn = document.getElementById('startPause');
+  const resetBtn = document.getElementById('reset');
+  const progressDots = document.getElementById('progressDots');
+  const activeTaskBanner = document.getElementById('activeTaskBanner');
+  const modeButtons = document.querySelectorAll('.mode-switch button');
+
+  function fmt(s) {
+    const m = Math.floor(s / 60).toString().padStart(2, '0');
+    const ss = (s % 60).toString().padStart(2, '0');
+    return `${m}:${ss}`;
+  }
+
+  function renderDots() {
+    progressDots.innerHTML = '';
+    for (let i = 0; i < 4; i++) {
+      const d = document.createElement('div');
+      d.className = 'dot' + (i < completedPomodoros % 4 ? ' done' : '');
+      progressDots.appendChild(d);
+    }
+  }
+
+  function updateDisplay() {
+    timeDisplay.textContent = fmt(secondsLeft);
+    document.title = `${fmt(secondsLeft)} · Focus Flow`;
+  }
+
+  function setMode(newMode, resetTime = true) {
+    mode = newMode;
+    modeButtons.forEach((b) => b.classList.toggle('active', b.dataset.mode === newMode));
+    sessionLabel.textContent = LABELS[newMode];
+    if (resetTime) {
+      secondsLeft = DURATIONS[newMode];
+      updateDisplay();
+    }
+  }
+
+  function tick() {
+    secondsLeft--;
+    updateDisplay();
+    if (secondsLeft <= 0) {
+      clearInterval(timerId);
+      running = false;
+      startPauseBtn.textContent = '시작';
+      playChime();
+      if (mode === 'focus') {
+        completedPomodoros++;
+        renderDots();
+        bumpActiveTaskPomo();
+        const next = completedPomodoros % 4 === 0 ? 'long' : 'short';
+        setMode(next);
+      } else {
+        setMode('focus');
+      }
+    }
+  }
+
+  function playChime() {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      [523.25, 659.25, 783.99].forEach((freq, i) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.frequency.value = freq;
+        osc.type = 'sine';
+        gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.15, ctx.currentTime + i * 0.15 + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + i * 0.15 + 0.4);
+        osc.connect(gain).connect(ctx.destination);
+        osc.start(ctx.currentTime + i * 0.15);
+        osc.stop(ctx.currentTime + i * 0.15 + 0.4);
+      });
+    } catch (e) {}
+  }
+
+  startPauseBtn.addEventListener('click', () => {
+    running = !running;
+    if (running) {
+      startPauseBtn.textContent = '일시정지';
+      timerId = setInterval(tick, 1000);
+    } else {
+      startPauseBtn.textContent = '시작';
+      clearInterval(timerId);
+    }
+  });
+
+  resetBtn.addEventListener('click', () => {
+    running = false;
+    clearInterval(timerId);
+    startPauseBtn.textContent = '시작';
+    secondsLeft = DURATIONS[mode];
+    updateDisplay();
+  });
+
+  modeButtons.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      running = false;
+      clearInterval(timerId);
+      startPauseBtn.textContent = '시작';
+      setMode(btn.dataset.mode);
+    });
+  });
+
+  // ---- Tasks ----
+  const STORAGE_KEY = 'focusflow.tasks.v1';
+  let tasks = [];
+  let activeTaskId = null;
+
+  function loadTasks() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      tasks = raw ? JSON.parse(raw) : [];
+    } catch (e) {
+      tasks = [];
+    }
+  }
+
+  function saveTasks() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
+    } catch (e) {}
+  }
+
+  function renderTasks() {
+    const list = document.getElementById('taskList');
+    const empty = document.getElementById('emptyState');
+    list.innerHTML = '';
+    if (tasks.length === 0) {
+      empty.style.display = 'block';
+    } else {
+      empty.style.display = 'none';
+    }
+    tasks.forEach((task) => {
+      const li = document.createElement('li');
+      li.className = task.done ? 'done' : '';
+      if (task.id === activeTaskId) li.style.outline = '2px solid var(--accent)';
+
+      const check = document.createElement('div');
+      check.className = 'check';
+      check.textContent = task.done ? '✓' : '';
+      check.addEventListener('click', () => {
+        task.done = !task.done;
+        saveTasks();
+        renderTasks();
+      });
+
+      const text = document.createElement('div');
+      text.className = 'text';
+      text.textContent = task.text;
+      text.addEventListener('click', () => {
+        activeTaskId = task.id;
+        renderTasks();
+        updateActiveBanner();
+      });
+
+      const pomo = document.createElement('div');
+      pomo.className = 'pomo-count';
+      pomo.textContent = `🍅 ${task.pomodoros || 0}`;
+
+      const del = document.createElement('button');
+      del.className = 'del';
+      del.textContent = '×';
+      del.addEventListener('click', () => {
+        tasks = tasks.filter((t) => t.id !== task.id);
+        if (activeTaskId === task.id) activeTaskId = null;
+        saveTasks();
+        renderTasks();
+        updateActiveBanner();
+      });
+
+      li.appendChild(check);
+      li.appendChild(text);
+      li.appendChild(pomo);
+      li.appendChild(del);
+      list.appendChild(li);
+    });
+  }
+
+  function updateActiveBanner() {
+    const t = tasks.find((t) => t.id === activeTaskId);
+    activeTaskBanner.innerHTML = t ? `현재 작업: <b>${escapeHtml(t.text)}</b>` : '&nbsp;';
+  }
+
+  function bumpActiveTaskPomo() {
+    const t = tasks.find((t) => t.id === activeTaskId);
+    if (t) {
+      t.pomodoros = (t.pomodoros || 0) + 1;
+      saveTasks();
+      renderTasks();
+    }
+  }
+
+  function escapeHtml(s) {
+    const div = document.createElement('div');
+    div.textContent = s;
+    return div.innerHTML;
+  }
+
+  function addTask() {
+    const input = document.getElementById('taskInput');
+    const value = input.value.trim();
+    if (!value) return;
+    tasks.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2), text: value, done: false, pomodoros: 0 });
+    input.value = '';
+    saveTasks();
+    renderTasks();
+  }
+
+  document.getElementById('addTask').addEventListener('click', addTask);
+  document.getElementById('taskInput').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') addTask();
+  });
+
+  loadTasks();
+  renderTasks();
+  updateActiveBanner();
+  renderDots();
+  updateDisplay();
+})();
+</script>
+</body>
+</html>

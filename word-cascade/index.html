@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Word Cascade</title>
+<style>
+  :root {
+    --bg: #0b1020;
+    --bg2: #131a30;
+    --ink: #e8ecff;
+    --sub: #7c88b8;
+    --accent: #5ee6c8;
+    --danger: #ff6b81;
+    --line: #232b4a;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    height: 100%;
+    overflow: hidden;
+    background: radial-gradient(ellipse at top, var(--bg2), var(--bg));
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Pretendard, monospace;
+  }
+  #app {
+    position: relative;
+    width: 100%;
+    height: 100%;
+  }
+  canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+  .hud {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    display: flex;
+    justify-content: space-between;
+    padding: 16px 22px;
+    pointer-events: none;
+    font-size: 14px;
+    color: var(--sub);
+    letter-spacing: 0.5px;
+  }
+  .hud b { color: var(--ink); font-size: 16px; }
+  .lives { color: var(--danger); letter-spacing: 3px; }
+  .overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    background: rgba(11, 16, 32, 0.88);
+    backdrop-filter: blur(4px);
+  }
+  .overlay h1 {
+    font-size: 32px;
+    margin: 0 0 8px;
+    letter-spacing: 1px;
+  }
+  .overlay p {
+    color: var(--sub);
+    font-size: 14px;
+    max-width: 340px;
+    line-height: 1.6;
+    margin: 0 0 22px;
+  }
+  .overlay .score-big {
+    font-size: 48px;
+    font-weight: 700;
+    color: var(--accent);
+    margin-bottom: 4px;
+  }
+  .overlay .best {
+    font-size: 13px;
+    color: var(--sub);
+    margin-bottom: 24px;
+  }
+  button.play {
+    background: var(--accent);
+    color: #0b1020;
+    border: none;
+    border-radius: 10px;
+    padding: 14px 32px;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    letter-spacing: 0.5px;
+  }
+  button.play:hover { filter: brightness(1.08); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div id="app">
+  <canvas id="canvas"></canvas>
+  <div class="hud">
+    <div>SCORE <b id="scoreVal">0</b></div>
+    <div>LV <b id="levelVal">1</b></div>
+    <div class="lives" id="livesVal">♥♥♥</div>
+  </div>
+
+  <div class="overlay" id="startOverlay">
+    <h1>WORD CASCADE</h1>
+    <p>단어가 위에서 떨어집니다. 키보드로 단어를 입력해서 바닥에 닿기 전에 없애세요.<br/>놓치면 목숨이 줄어듭니다.</p>
+    <button class="play" id="startBtn">시작하기</button>
+  </div>
+
+  <div class="overlay" id="gameOverOverlay" hidden>
+    <div style="font-size:13px;color:var(--sub);letter-spacing:2px;margin-bottom:8px;">GAME OVER</div>
+    <div class="score-big" id="finalScore">0</div>
+    <div class="best" id="bestScore">BEST 0</div>
+    <button class="play" id="retryBtn">다시하기</button>
+  </div>
+</div>
+
+<script>
+(function () {
+  const WORDS = [
+    'code','game','moon','star','wind','fire','snow','leaf','rain','song',
+    'blue','gold','fast','slow','jump','play','dream','flame','ocean','light',
+    'cloud','stone','river','sound','magic','pixel','ghost','cyber','quick','bloom',
+    'spark','pulse','orbit','crash','swift','flare','drift','glide','pixel','logic',
+    'brave','charm','delta','echo','frost','grove','haven','ivory','jolt','karma',
+    'lunar','mint','nexus','onyx','prism','quartz','rogue','shade','tidal','umbra',
+    'vivid','wisp','zenith','amber','crystal','dawn','ember','flux','glow','harbor'
+  ];
+
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+  const scoreVal = document.getElementById('scoreVal');
+  const levelVal = document.getElementById('levelVal');
+  const livesVal = document.getElementById('livesVal');
+  const startOverlay = document.getElementById('startOverlay');
+  const gameOverOverlay = document.getElementById('gameOverOverlay');
+  const finalScore = document.getElementById('finalScore');
+  const bestScore = document.getElementById('bestScore');
+
+  function resize() {
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = window.innerWidth * dpr;
+    canvas.height = window.innerHeight * dpr;
+    canvas.style.width = window.innerWidth + 'px';
+    canvas.style.height = window.innerHeight + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  let falling = [];
+  let particles = [];
+  let score = 0;
+  let lives = 3;
+  let level = 1;
+  let spawnTimer = 0;
+  let spawnInterval = 90;
+  let baseSpeed = 0.6;
+  let running = false;
+  let lastTime = null;
+  let usedWords = [];
+
+  const STORAGE_KEY = 'wordcascade.best.v1';
+  function getBest() {
+    try { return parseInt(localStorage.getItem(STORAGE_KEY) || '0', 10); } catch (e) { return 0; }
+  }
+  function setBest(v) {
+    try { localStorage.setItem(STORAGE_KEY, String(v)); } catch (e) {}
+  }
+
+  function pickWord() {
+    if (usedWords.length > WORDS.length * 0.7) usedWords = [];
+    let w;
+    do { w = WORDS[Math.floor(Math.random() * WORDS.length)]; } while (usedWords.includes(w));
+    usedWords.push(w);
+    return w;
+  }
+
+  function spawnWord() {
+    const w = pickWord();
+    const fontSize = 20;
+    ctx.font = `600 ${fontSize}px monospace`;
+    const width = ctx.measureText(w).width + 20;
+    const x = Math.random() * Math.max(10, (window.innerWidth - width));
+    falling.push({
+      word: w,
+      typed: 0,
+      x,
+      y: -30,
+      speed: baseSpeed + Math.random() * 0.3 + (level - 1) * 0.15,
+      fontSize,
+    });
+  }
+
+  function addParticles(x, y, color) {
+    for (let i = 0; i < 14; i++) {
+      particles.push({
+        x, y,
+        vx: (Math.random() - 0.5) * 4,
+        vy: (Math.random() - 0.5) * 4 - 1,
+        life: 30,
+        color,
+      });
+    }
+  }
+
+  function findActiveTarget() {
+    return falling.find((f) => f.typed > 0);
+  }
+
+  function handleChar(ch) {
+    if (!running) return;
+    ch = ch.toLowerCase();
+    let target = findActiveTarget();
+    if (target) {
+      if (target.word[target.typed] === ch) {
+        target.typed++;
+        if (target.typed >= target.word.length) {
+          score += target.word.length * 10 * level;
+          scoreVal.textContent = score;
+          addParticles(target.x + (target.fontSize * target.word.length) / 2.4, target.y, '#5ee6c8');
+          falling = falling.filter((f) => f !== target);
+        }
+        return;
+      } else {
+        target.typed = 0;
+      }
+    }
+    const candidate = falling.find((f) => f.typed === 0 && f.word[0] === ch);
+    if (candidate) candidate.typed = 1;
+  }
+
+  window.addEventListener('keydown', (e) => {
+    if (e.key.length === 1 && /[a-zA-Z]/.test(e.key)) {
+      handleChar(e.key);
+    }
+  });
+
+  function updateLevel() {
+    const newLevel = 1 + Math.floor(score / 300);
+    if (newLevel !== level) {
+      level = newLevel;
+      levelVal.textContent = level;
+      spawnInterval = Math.max(35, 90 - level * 6);
+    }
+  }
+
+  function loseLife() {
+    lives--;
+    livesVal.textContent = '♥'.repeat(Math.max(0, lives)) + '♡'.repeat(Math.max(0, 3 - lives));
+    if (lives <= 0) endGame();
+  }
+
+  function endGame() {
+    running = false;
+    finalScore.textContent = score;
+    const best = Math.max(score, getBest());
+    setBest(best);
+    bestScore.textContent = 'BEST ' + best;
+    gameOverOverlay.hidden = false;
+  }
+
+  function draw() {
+    ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+
+    ctx.strokeStyle = 'rgba(94,230,200,0.25)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, window.innerHeight - 40);
+    ctx.lineTo(window.innerWidth, window.innerHeight - 40);
+    ctx.stroke();
+
+    falling.forEach((f) => {
+      ctx.font = `600 ${f.fontSize}px monospace`;
+      const typedPart = f.word.slice(0, f.typed);
+      const restPart = f.word.slice(f.typed);
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#5ee6c8';
+      ctx.fillText(typedPart, f.x, f.y);
+      const typedWidth = ctx.measureText(typedPart).width;
+      ctx.fillStyle = f.typed > 0 ? '#e8ecff' : '#9aa4d0';
+      ctx.fillText(restPart, f.x + typedWidth, f.y);
+    });
+
+    particles.forEach((p) => {
+      ctx.globalAlpha = Math.max(0, p.life / 30);
+      ctx.fillStyle = p.color;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    });
+  }
+
+  function update(dt) {
+    spawnTimer += dt;
+    if (spawnTimer > spawnInterval) {
+      spawnTimer = 0;
+      spawnWord();
+    }
+
+    falling.forEach((f) => { f.y += f.speed * dt * 0.6; });
+
+    const missed = falling.filter((f) => f.y > window.innerHeight - 30);
+    if (missed.length) {
+      missed.forEach(() => loseLife());
+      falling = falling.filter((f) => f.y <= window.innerHeight - 30);
+    }
+
+    particles.forEach((p) => {
+      p.x += p.vx;
+      p.y += p.vy;
+      p.life--;
+    });
+    particles = particles.filter((p) => p.life > 0);
+
+    updateLevel();
+  }
+
+  function loop(ts) {
+    if (!running) return;
+    if (lastTime === null) lastTime = ts;
+    const dt = Math.min(3, (ts - lastTime) / 16.67);
+    lastTime = ts;
+    update(dt);
+    draw();
+    requestAnimationFrame(loop);
+  }
+
+  function resetGame() {
+    falling = [];
+    particles = [];
+    score = 0;
+    lives = 3;
+    level = 1;
+    spawnTimer = 0;
+    spawnInterval = 90;
+    lastTime = null;
+    usedWords = [];
+    scoreVal.textContent = '0';
+    levelVal.textContent = '1';
+    livesVal.textContent = '♥♥♥';
+  }
+
+  function startGame() {
+    resetGame();
+    startOverlay.hidden = true;
+    gameOverOverlay.hidden = true;
+    running = true;
+    requestAnimationFrame(loop);
+  }
+
+  document.getElementById('startBtn').addEventListener('click', startGame);
+  document.getElementById('retryBtn').addEventListener('click', startGame);
+
+  bestScore.textContent = 'BEST ' + getBest();
+})();
+</script>
+</body>
+</html>

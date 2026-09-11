@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Doodle Synth</title>
+<style>
+  :root {
+    --bg: #101018;
+    --panel: #1a1a26;
+    --ink: #f0f0f8;
+    --sub: #9a97b3;
+    --line: #2c2b3d;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    height: 100%;
+    overflow: hidden;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Pretendard, sans-serif;
+  }
+  #app {
+    position: relative;
+    width: 100%;
+    height: 100%;
+  }
+  canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    touch-action: none;
+    cursor: crosshair;
+  }
+  .topbar {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 14px 18px;
+    pointer-events: none;
+    z-index: 5;
+  }
+  .title {
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    color: var(--sub);
+    pointer-events: none;
+  }
+  .toolbar {
+    position: absolute;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(26,26,38,0.85);
+    backdrop-filter: blur(10px);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    z-index: 5;
+  }
+  .swatches {
+    display: flex;
+    gap: 8px;
+  }
+  .swatch {
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    cursor: pointer;
+    border: 2px solid transparent;
+    flex-shrink: 0;
+  }
+  .swatch.selected {
+    border-color: white;
+    transform: scale(1.15);
+  }
+  .divider {
+    width: 1px;
+    height: 24px;
+    background: var(--line);
+  }
+  button.tool {
+    background: transparent;
+    border: 1px solid var(--line);
+    color: var(--ink);
+    border-radius: 999px;
+    padding: 8px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    pointer-events: auto;
+    white-space: nowrap;
+  }
+  button.tool:hover { background: rgba(255,255,255,0.08); }
+  button.tool.active {
+    background: #6c5ce7;
+    border-color: #6c5ce7;
+  }
+  .hint {
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%,-50%);
+    text-align: center;
+    color: var(--sub);
+    font-size: 13px;
+    pointer-events: none;
+    z-index: 1;
+    opacity: 0.8;
+  }
+  .hint b { color: var(--ink); }
+</style>
+</head>
+<body>
+<div id="app">
+  <canvas id="canvas"></canvas>
+  <div class="hint" id="hint">화면을 그리면 소리가 납니다<br/><b>드래그</b>해서 그려보세요 · 위치가 음높이를 결정합니다</div>
+  <div class="topbar">
+    <div class="title">🎨 DOODLE SYNTH</div>
+    <div></div>
+  </div>
+  <div class="toolbar">
+    <div class="swatches" id="swatches"></div>
+    <div class="divider"></div>
+    <button class="tool" id="waveBtn">파형: sine</button>
+    <div class="divider"></div>
+    <button class="tool" id="clearBtn">지우기</button>
+  </div>
+</div>
+
+<script>
+(function () {
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+  const hint = document.getElementById('hint');
+  let audioCtx = null;
+
+  function resize() {
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = window.innerWidth * dpr;
+    canvas.height = window.innerHeight * dpr;
+    canvas.style.width = window.innerWidth + 'px';
+    canvas.style.height = window.innerHeight + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  const COLORS = ['#ff6b6b', '#feca57', '#1dd1a1', '#54a0ff', '#c56cf0', '#ffffff'];
+  let currentColor = COLORS[3];
+  let waveforms = ['sine', 'triangle', 'sawtooth', 'square'];
+  let waveIndex = 0;
+
+  const swatchesEl = document.getElementById('swatches');
+  COLORS.forEach((c) => {
+    const s = document.createElement('div');
+    s.className = 'swatch' + (c === currentColor ? ' selected' : '');
+    s.style.background = c;
+    s.addEventListener('click', () => {
+      currentColor = c;
+      document.querySelectorAll('.swatch').forEach((el) => el.classList.remove('selected'));
+      s.classList.add('selected');
+    });
+    swatchesEl.appendChild(s);
+  });
+
+  const waveBtn = document.getElementById('waveBtn');
+  waveBtn.addEventListener('click', () => {
+    waveIndex = (waveIndex + 1) % waveforms.length;
+    waveBtn.textContent = '파형: ' + waveforms[waveIndex];
+  });
+
+  document.getElementById('clearBtn').addEventListener('click', () => {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+  });
+
+  function ensureAudio() {
+    if (!audioCtx) {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    return audioCtx;
+  }
+
+  const activeVoices = new Map(); // pointerId -> {osc, gain}
+
+  function yToFreq(y) {
+    const h = window.innerHeight;
+    const t = 1 - Math.min(Math.max(y / h, 0), 1);
+    const minF = 110, maxF = 1200;
+    return minF * Math.pow(maxF / minF, t);
+  }
+
+  function xToPan(x) {
+    const w = window.innerWidth;
+    return (x / w) * 2 - 1;
+  }
+
+  function startVoice(id, x, y) {
+    const ac = ensureAudio();
+    const osc = ac.createOscillator();
+    const gain = ac.createGain();
+    const panner = ac.createStereoPanner ? ac.createStereoPanner() : null;
+    osc.type = waveforms[waveIndex];
+    osc.frequency.value = yToFreq(y);
+    gain.gain.setValueAtTime(0.0001, ac.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.12, ac.currentTime + 0.05);
+    if (panner) {
+      panner.pan.value = xToPan(x);
+      osc.connect(gain).connect(panner).connect(ac.destination);
+    } else {
+      osc.connect(gain).connect(ac.destination);
+    }
+    osc.start();
+    activeVoices.set(id, { osc, gain, panner });
+  }
+
+  function updateVoice(id, x, y) {
+    const v = activeVoices.get(id);
+    if (!v) return;
+    const ac = audioCtx;
+    v.osc.frequency.setTargetAtTime(yToFreq(y), ac.currentTime, 0.03);
+    if (v.panner) v.panner.pan.setTargetAtTime(xToPan(x), ac.currentTime, 0.03);
+  }
+
+  function stopVoice(id) {
+    const v = activeVoices.get(id);
+    if (!v) return;
+    const ac = audioCtx;
+    v.gain.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + 0.15);
+    v.osc.stop(ac.currentTime + 0.16);
+    activeVoices.delete(id);
+  }
+
+  const lastPoint = new Map();
+
+  function drawSegment(id, x, y) {
+    const prev = lastPoint.get(id);
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = currentColor;
+    ctx.shadowColor = currentColor;
+    ctx.shadowBlur = 8;
+    ctx.lineWidth = 4;
+    ctx.beginPath();
+    if (prev) {
+      ctx.moveTo(prev.x, prev.y);
+    } else {
+      ctx.moveTo(x, y);
+    }
+    ctx.lineTo(x, y);
+    ctx.stroke();
+    lastPoint.set(id, { x, y });
+  }
+
+  function pointerDown(e) {
+    hint.style.display = 'none';
+    canvas.setPointerCapture(e.pointerId);
+    startVoice(e.pointerId, e.clientX, e.clientY);
+    drawSegment(e.pointerId, e.clientX, e.clientY);
+  }
+  function pointerMove(e) {
+    if (!activeVoices.has(e.pointerId)) return;
+    updateVoice(e.pointerId, e.clientX, e.clientY);
+    drawSegment(e.pointerId, e.clientX, e.clientY);
+  }
+  function pointerUp(e) {
+    stopVoice(e.pointerId);
+    lastPoint.delete(e.pointerId);
+  }
+
+  canvas.addEventListener('pointerdown', pointerDown);
+  canvas.addEventListener('pointermove', pointerMove);
+  canvas.addEventListener('pointerup', pointerUp);
+  canvas.addEventListener('pointercancel', pointerUp);
+  canvas.addEventListener('pointerleave', (e) => {
+    if (e.buttons === 0) stopVoice(e.pointerId), lastPoint.delete(e.pointerId);
+  });
+})();
+</script>
+</body>
+</html>
